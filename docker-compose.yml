@@ -1,0 +1,70 @@
+services:
+  api:
+    build: .
+    image: test-luna-api
+    container_name: test-luna-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+    environment:
+      PYTHONDONTWRITEBYTECODE: 1
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/luna-payments
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: sh -c "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  consumer:
+    build: .
+    image: test-luna-api
+    container_name: test-luna-consumer
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    environment:
+      PYTHONDONTWRITEBYTECODE: 1
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/luna-payments
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: uv run python -m app.services.consumer
+
+  postgres:
+    image: postgres:16
+    container_name: test-luna-pslq
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: luna-payments
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d luna-payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: test-luna-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
